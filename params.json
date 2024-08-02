@@ -1,0 +1,22 @@
+{
+	"reads": "s3://sparktx-nextflow-pipeline/pacbio_methylation/demultiplex.bc2016--bc2016.bam",
+	"reference": "s3://sparktx-nextflow-pipeline/projects/longread_transposon/nrui/pTH05v4C_NruI.fasta",
+	"min_variant_freq":0.01,
+	"min_consensus_baseq": 30,
+	"variant_maxdepth": 100000,
+        "consensus_thresh":"0.95,0.99",
+	"ndownsample":50000,
+        "machine_id":"AD-009-SEQ",
+        "platform":"PacBio",
+        "project":"vector characterization",
+        "run":"EXP23003478",
+        "group":"Analytical Development",
+        "department":"Technical Development",
+        "requester":"Nathan Johnson",
+        "email":"nathan.johnson@sparktx.com",
+        "date":"2022-09-21",
+        "program":"Huntington's Disease",
+        "species":"AAV",
+        "lot":"1",
+	"VERSION":"1.2.0rc1"
+}

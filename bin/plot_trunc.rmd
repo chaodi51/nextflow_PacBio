@@ -1,0 +1,55 @@
+---
+title: "Truncation hotspot plots"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_collapsed: true
+    toc_depth: 3
+    number_sections: yes
+    code_folding: hide
+params:
+    files: x
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE,
+                      warning = FALSE)
+```
+
+```{r include=FALSE}
+library(rmarkdown)
+library(ggplot2)
+library(dplyr)
+library(scales)
+```
+
+
+## Truncation hotspots plot
+```{r}
+all_files <- unlist(strsplit(params$files, " "))
+for (i in all_files[grepl(pattern = ".anno.cov", all_files)]){
+    tmp <- unlist(strsplit(i, "/"))
+    sample <- gsub(".anno.cov", "", tmp[length(tmp)])
+    cat(sample, "\n")
+    df <- read.table(i)
+    colnames(df) <- c("Position", "Counts", "Anno")
+
+    df$Anno <- factor(df$Anno,
+              levels = c("ITR", "Others"))
+    p <- ggplot(df, aes(x = Position, y = Counts)) +
+        geom_col(aes(color = Anno, fill = Anno)) +
+        labs(title = "Truncation hotspots") +
+        scale_color_manual(breaks = c("Others", "ITR"),
+        values = c("blue", "red")) +
+        scale_fill_manual(breaks = c("Others", "ITR"),
+        values = c("blue", "red")) +
+        theme_bw() +
+        theme(plot.title = element_text(hjust = 0.5),
+              legend.position = "top",
+              plot.background = element_blank(),
+              panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank())
+    print(p) # must use print in loops
+}
+```

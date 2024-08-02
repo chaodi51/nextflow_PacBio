@@ -1,0 +1,64 @@
+---
+title: "Index of Sample Reports"
+runtime: shiny
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_collapsed: true
+    toc_depth: 3
+    number_sections: true
+    highlight: espresso
+    includes:
+      after_body: footer.html
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, dev = "png", dev.args = list(type = "cairo-png"))
+#Call libraries
+library("shiny")
+library("DT")
+library("dplyr")
+
+version <- VERSION_HERE
+basedir <- "/mnt/groupdata/sparkds-datalake-groupdropin-bioinformatics/nf_pacbio"
+targetdir <- paste(basedir, paste("v", version, sep=""), "rsconnect", sep="/")
+
+#Read files
+toc_paths <- Sys.glob(paste(targetdir, "/nextflow_deployment_toc_*.tsv", sep=""))
+toc_data <- read.delim(toc_paths[1])
+if (length(toc_paths) > 1) {
+    for (i in 2:length(toc_paths)) {
+        new_data <- read.delim(toc_paths[i])
+        toc_data <- rbind(toc_data, new_data)
+    }
+}
+toc_data <- subset(toc_data, select = c(-X))
+toc_data <- toc_data[order(toc_data$group, toc_data$run, toc_data$target),]
+```
+
+***
+
+<font size="6"> Samples processed </font>    
+
+<font size="4"> Software version **`r version`** </font>
+
+&nbsp;
+&nbsp;
+&nbsp;
+&nbsp;
+&nbsp;
+
+```{r Table of Contents, echo=FALSE}
+datatable(toc_data, escape=FALSE)
+
+downloadHandler(
+  filename = function() {
+    paste(version, "_", "samples-", Sys.Date(), ".csv", sep = "")
+  },
+  content = function(file) {
+    write.csv(toc_data, file)
+  },
+  outputArgs = list(label = "Download .csv")
+)
+```

@@ -1,0 +1,16 @@
+
+# exclude everything
+data/raw/*
+data/ref/*
+data/outputs/*
+.nextflow.log*
+.nextflow
+work/*
+*.code-workspace
+
+# exception to the rule
+!data/raw/.keep
+!data/ref/*bed
+!data/ref/*fasta
+!data/ref/elements/
+!data/outputs/.keep

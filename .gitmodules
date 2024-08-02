@@ -1,0 +1,8 @@
+[submodule "nf-finalize-outputs"]
+	path = nf-finalize-outputs
+	url = https://git-codecommit.us-east-2.amazonaws.com/v1/repos/nf-finalize-outputs
+	branch = v0.4.0
+[submodule "nf-report-runner"]
+	path = nf-report-runner
+	url = https://git-codecommit.us-east-2.amazonaws.com/v1/repos/nf-report-runner
+	branch = v0.1.1

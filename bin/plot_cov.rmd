@@ -1,0 +1,48 @@
+---
+title: "Coverage plots for each reference"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_collapsed: true
+    toc_depth: 3
+    number_sections: yes
+    code_folding: hide
+params:
+    covfiles: default
+---
+
+# Abstract
+Plot reads coverage for each reference vector/plasmid
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE,
+                      warning = FALSE)
+```
+
+```{r}
+library(tidyverse)
+```
+
+# plot coverage for each ref
+```{r, fig.height=20, fig.width=8}
+all_files <- unlist(strsplit(params$covfiles, " "))
+
+all_cov <- data.frame(matrix(nrow = 0, ncol = 4))
+colnames(all_cov) <- c('pos', 'depth', 'sample', 'ref')
+for (i in all_files){
+    tmp <- unlist(strsplit(i, "/"))
+    filename <- gsub(".cov", "", tmp[length(tmp)])
+    sample <- unlist(strsplit(filename, '\\.'))[1]
+    ref <- unlist(strsplit(filename, '\\.'))[2]
+
+    covDf <- read_tsv(i)
+    all_cov <- rbind(all_cov, covDf)
+}
+p <- all_cov %>%
+  ggplot() +
+  geom_line(aes(x = pos, y = depth, colour = sample)) +
+    theme_bw() +
+    facet_wrap(~ ref, scales = "free", ncol = 1)
+print(p)
+```

@@ -1,0 +1,98 @@
+---
+title: "Truncation plots from Alvis Chimera detection"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_collapsed: true
+    toc_depth: 3
+    number_sections: yes
+    code_folding: hide
+params:
+    chimeras: default
+    annotation: default
+---
+
+# Abstract
+Plot the chimeric read's truncation spot on AAV vectors using `Gviz`.
+The trunction position on a vector could be:
+1, the position where a read's part 1 end align to;
+2, or the position where a read's part 2 start align to.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE,
+                      warning = FALSE)
+```
+
+```{r}
+library(readr)
+library(tidyverse)
+library(ggplot2)
+library(Gviz)
+library(ggpubr)
+```
+
+```{r}
+sample <- gsub('.chimeras.txt', '', params$chimeras)
+vector_name <- gsub("host_", "", unlist(strsplit(sample, "__"))[2])
+```
+
+# `r sample`
+
+## Load chimera.txt from Alvis results
+```{r}
+# chimera_tab <- read.table(params$file, col.names = FALSE)
+chimera_tab <- read.table(params$chimeras)
+colnames(chimera_tab) <- c("read_id", "mid_pos", "ref1", "ref2", "read_p1_st", "read_p1_end",
+    "read_p2_st", "read_p2_end", "align_p1_st", "align_p1_end", "align_p2_st", "align_p2_end")
+
+align1_end <- chimera_tab[, c(3, 10)] %>% filter(!grepl("host", ref1))
+align2_st <- chimera_tab[, c(4, 11)] %>% filter(!grepl("host", ref2))
+```
+
+## Data track
+
+```{r}
+options(ucscChromosomeNames = FALSE)
+align1_end_c <- align1_end %>% count(ref1, align_p1_end)
+colnames(align1_end_c) <- c("chr", "start", "score")
+align1_end_c$end <- align1_end_c$start + 1
+align1_end_c <- cbind(align1_end_c[, -3], align1_end = align1_end_c$score)
+align1_end_c$align2_st <- 0
+
+align2_st_c <- align2_st %>% count(ref2, align_p2_st)
+colnames(align2_st_c) <- c("chr", "start", "score")
+align2_st_c$end <- align2_st_c$start + 1
+align2_st_c$align1_end <- 0
+align2_st_c <- cbind(align2_st_c[, -3], align2_st = align2_st_c$score)
+
+trunc <- rbind(align1_end_c, align2_st_c)
+trunc$chr <- unlist(strsplit(trunc$chr[1], "__"))[1]
+gr <- makeGRangesFromDataFrame(trunc,  keep.extra.columns = TRUE)
+
+dTrack <- DataTrack(gr, type = "h", name = "count", groups = c("align1_end", "align2_st"))
+```
+
+## Annotation track
+```{r}
+anno <- read.csv(params$annotation, sep = "\t")
+vector <- anno %>% filter(chrom == vector_name & !region == "KanR")
+
+vector$chrom <- gsub("pAAV_ApoE_hAAT_HBB2m1_SERPING1co21_BGH228_Copy", "SERPING1co21_BGH228_Copy", vector$chrom)
+vector$chrom <- gsub("pAAV_ApoE_hAAT_HBB2m1_sp7-GLAco4_BGH228", "sp7-GLAco4_BGH228", vector$chrom)
+
+
+aTrack <- AnnotationTrack(start = vector$st, end = vector$end,
+                          strand = vector$strand,
+                          id = vector$region, chromosome = vector_name,
+                          name = vector_name)
+```
+
+## plot trunctions
+```{r fig.height=6, fig.width=10}
+plotTracks(list(dTrack, aTrack), showFeatureId = FALSE, groupAnnotation = "id",
+  cex.group = 0.8, from = 0, to = 4500,
+  showId = TRUE, fill = "#a3c6e7", collapse = FALSE, just.group = "right",
+  extend.right = 500, fontsize = 14, col.axis = "black", cex.axis = 0.8,
+  fontcolor.feature = "#010112", background.title = "#e8e7e7", col.title = "black")
+```

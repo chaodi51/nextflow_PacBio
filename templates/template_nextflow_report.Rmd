@@ -1,0 +1,855 @@
+---
+title: "PacBio - Dynamic Identity Report"
+runtime: shiny
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_collapsed: true
+    toc_depth: 3
+    number_sections: true
+    highlight: espresso
+    includes:
+      after_body: footer.html
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, dev = "png", dev.args = list(type = "cairo-png"))
+#Install plotly as follows - https://plotly.com/ggplot2/getting-started/
+#Call libraries
+library("shiny")
+library("DT")
+library("ggplot2")
+library("plotly")
+library("jsonlite")
+library("yaml")
+library("dplyr")
+library("downloadthis")
+library("stringr")
+
+version <- VERSION_HERE
+sessionId <- SESSIONID_HERE
+basedir <- "/mnt/groupdata/sparkds-datalake-groupdropin-bioinformatics/nf_pacbio"
+targetdir <- paste(basedir, paste("v", version, sep=""), sessionId, sep="/")
+
+#Read files
+metaData <- read.delim(paste(targetdir, "/metadata.tsv", sep=""))
+run <- as.character(metaData$run)
+sample <- as.character(metaData$sample_id)
+primaryref <- as.character(metaData$primary_ref)
+qcMetData <- read.delim(paste(targetdir, "/multiqc_data.tsv", sep="")) #qc metrics data
+readStats <- read.delim(paste(targetdir, "/readstats.tsv", sep=""))
+qcMetData <- merge(qcMetData, readStats)
+qcMetData <- t(subset(qcMetData, select = -c(workflow_id, sample_id)))
+colnames(qcMetData)[1] <- "value"
+qcMetData <- data.frame(qcMetData)
+alignmentLengths <- read.delim(paste(targetdir, "/align_len_count.tsv", sep=""))
+alignmentLengths <- subset(alignmentLengths, select = -c(workflow_id))
+readLengths <- read.delim(paste(targetdir, "/read_len_counts.tsv", sep=""))
+readLengths <- subset(readLengths, select = -c(workflow_id))
+readPositions <- read.delim(paste(targetdir, "/pos_len.tsv", sep=""))
+readPositions <- subset(readPositions, select = -c(workflow_id))
+truncationData <- read.delim(paste(targetdir, "/truncations.tsv", sep=""))
+truncationData <- subset(truncationData, select = -c(workflow_id))
+chimeraData <- read.delim(paste(targetdir, "/chimeras.tsv", sep=""))
+chimeraData <- subset(chimeraData, select = -c(workflow_id))
+variantData <- read.delim(paste(targetdir, "/variants.tsv", sep=""))
+variantData <- subset(variantData, select = -c(workflow_id))
+consensusData <- read.delim(paste(targetdir, "/var_table.tsv", sep=""), check.names=FALSE)
+consensusData <- subset(consensusData, select = -c(workflow_id))
+refcountData <- read.delim(paste(targetdir, "/reference_counts.tsv", sep=""))
+refcountData <- refcountData[order(-refcountData$count),]
+#refcountData <- subset(refcountData, select = -c(workflow_id))
+methylationData <- read.delim(paste(targetdir, "/methylation.tsv", sep=""))
+methylationData <- subset(methylationData, select = -c(workflow_id))
+transposonFile = paste(targetdir, "/tn_metrics.tsv", sep="")
+consensusFasta <- paste(targetdir, "/consensus.fasta", sep="")
+pairwiseAlignment <- paste(targetdir, "/consensus.txt", sep="") 
+plotData <- read.delim(paste(targetdir, "/positional_metrics.tsv", sep=""))
+plotData <- subset(plotData, select = -c(workflow_id))
+bampath <- paste(targetdir, "/", primaryref, ".bam", sep="")
+baipath <- paste(bampath, ".bai", sep="")
+scbampath <- paste(targetdir, "/softclipped_reads.bam", sep="")
+scbaipath <- paste(scbampath, ".bai", sep="")
+tnbampath <- paste(targetdir, "/transposons.bam", sep="")
+tnbaipath <- paste(tnbampath, ".bai", sep="")
+humanbampath <- paste(targetdir, "/GCF_009914755.1_T2T-CHM13v2.0_genomic.bam", sep="")
+humanbaipath <- paste(humanbampath, ".bai", sep="")
+fastapath <- paste(targetdir, '/', primaryref, ".fasta", sep="")
+
+if (!file.exists(bampath)) {stop('BAM path invalid')}
+if (!file.exists(baipath)) {stop('BAI path invalid')}
+if (!file.exists(fastapath)) {stop('FASTA path invalid')}
+
+plasmid_cov_path = paste(targetdir, "/plasmid_depth.tsv", sep="")
+
+if (file.exists(transposonFile)) {
+    transposonData <- read.delim(transposonFile)
+    transposonData <- subset(transposonData, select = -c(workflow_id))
+} 
+
+```
+
+
+***
+
+<font size="6"> Sample **`r sample`** </font>    
+
+<font size="6"> Run **`r run`** </font>  
+
+<font size="4"> Processed on **`r as.character(metaData$date)`** </font>
+
+<font size="4"> Target **`r primaryref`** </font>
+
+<font size="4"> Software version **`r version`** </font>
+
+&nbsp;
+&nbsp;
+&nbsp;
+&nbsp;
+&nbsp;
+
+# General QC Metrics
+
+```{r QC Table, echo=FALSE}
+#Read data
+qcMetData$qccheck = "normal"
+## qcMetData$qccheck[which(qcMetData$value < qcMetData$lowcutoff)] <- 'low'
+## qcMetData$qccheck[which(qcMetData$value > qcMetData$highcutoff)] <- 'high' 
+
+## qcMetData <- subset(qcMetData, select = -c(lowcutoff, highcutoff))
+
+datatable(qcMetData) %>% formatStyle("qccheck", color = styleEqual(
+      c('low', 'normal', 'high'), c('red', 'green', 'green')))
+
+## create downloadButton in Rmd document
+downloadHandler(
+  filename = function() {
+    paste(run, "_", sample, "_", "qcmetrics-", Sys.Date(), ".csv", sep = "")
+  },
+  content = function(file) {
+    write.csv(qcMetData, file)
+  },
+  outputArgs = list(label = "Download .csv")
+)
+
+```
+&nbsp;
+&nbsp;
+&nbsp;
+
+# Variation {.tabset}
+
+## Variant calls
+
+```{r Vars Table, echo=FALSE}
+#Read data
+
+sketch = htmltools::withTags(table(
+  class = 'display',
+  thead(
+    tr(
+      th('', title = 'Row Names'),
+      th('CHROM', title = 'Contig name'),
+      th('POS', title = 'Reference position'),
+      th('ID', title = 'id'),
+      th('REF', title = 'Reference allele'),
+      th('ALT', title = 'Alternate allele'),
+      th('QUAL', title = 'Quality score'),
+      th('FILTER', title = 'Filter pass / fail'),
+      th('INFO_DP', title = 'Depth'),
+      th('INFO_AF', title = 'Allele frequency'),
+      th('INFO_SB', title = 'Strand bias (PHRED-scaled p-value)'),
+      th('INFO_DP4', title = 'Ref and alt depths by strand (fwd / rev)'),
+      th('INFO_INDEL', title = 'Is indel?'),
+      th('INFO_CONSVAR', title = 'Consensus variant?'),
+      th('INFO_HRUN', title = 'Adjacent homopolymer length')
+    )
+  )
+))
+datatable(variantData, container=sketch)
+
+downloadHandler(
+  filename = function() {
+    paste(run, "_", sample, "_", "variants-", Sys.Date(), ".csv", sep = "")
+  },
+  content = function(file) {
+    write.csv(variantData, file)
+  },
+  outputArgs = list(label = "Download .csv")
+)
+```
+&nbsp;
+&nbsp;
+&nbsp;
+
+## Variation table
+```{r Variation Table, echo=FALSE}
+#Read data
+
+varcols <- colnames(consensusData)
+idcols <- c(varcols[grepl("*ID$", varcols)], "% Identity")
+
+variationTable <- consensusData[-which(names(consensusData) %in% idcols)]
+datatable(variationTable)
+
+downloadHandler(
+  filename = function() {
+    paste(run, "_", sample, "_", "var-", Sys.Date(), ".csv", sep = "")
+  },
+  content = function(file) {
+    write.csv(variationTable, file)
+  },
+  outputArgs = list(label = "Download .csv")
+)
+```
+
+## Non-consensus
+```{r Consensus, echo=FALSE}
+#Read data
+
+varcols <- colnames(consensusData)
+keepcols <- c("Sample", "Position", "Reference", "A", "C", "G", "T", "del", varcols[grepl("*ID$", varcols)], "% Identity")
+
+keepTable <- consensusData[which(names(consensusData) %in% keepcols)]
+keepTable <- filter(keepTable, if_any(everything(), ~ grepl("N", .)))
+datatable(keepTable)
+
+downloadHandler(
+  filename = function() {
+    paste(run, "_", sample, "_", "cns-", Sys.Date(), ".csv", sep = "")
+  },
+  content = function(file) {
+    write.csv(keepTable, file)
+  },
+  outputArgs = list(label = "Download .csv")
+)
+```
+
+&nbsp;
+&nbsp;
+&nbsp;
+
+## Chimeras
+```{r Chimera Table, echo=FALSE}
+#Read data
+datatable(chimeraData)
+
+downloadHandler(
+  filename = function() {
+    paste(run, "_", sample, "_", "chimera-", Sys.Date(), ".csv", sep = "")
+  },
+  content = function(file) {
+    write.csv(chimeraData, file)
+  },
+  outputArgs = list(label = "Download .csv")
+)
+```
+
+&nbsp;
+&nbsp;
+&nbsp;
+
+## Methylation
+```{r Methylation Table, echo=FALSE}
+#Read data
+datatable(methylationData)
+
+downloadHandler(
+  filename = function() {
+    paste(run, "_", sample, "_", "methylation-", Sys.Date(), ".csv", sep = "")
+  },
+  content = function(file) {
+    write.csv(methylationData, file)
+  },
+  outputArgs = list(label = "Download .csv")
+)
+```
+
+&nbsp;
+&nbsp;
+&nbsp;
+
+## Transposons
+```{r Transposon Table, echo=FALSE}
+#Read data
+if (!file.exists(transposonFile)) {
+	print("Transposon analysis not conducted")
+	transposonData <- data.frame(c())
+} 
+
+datatable(transposonData)
+
+if (file.exists(transposonFile)) {
+
+    downloadHandler(
+      filename = function() {
+        paste(run, "_", sample, "_", "transposon-", Sys.Date(), ".csv", sep = "")
+      },
+      content = function(file) {
+        write.csv(transposonData, file)
+      },
+      outputArgs = list(label = "Download .csv")
+    )
+}
+```
+
+&nbsp;
+&nbsp;
+&nbsp;
+
+# Additional Figures {.tabset}
+
+## Sample constituents
+
+```{r, echo=FALSE}
+
+BLUE <- "#076fa2"
+refcountData['fraction'] <- refcountData$count / sum(refcountData$count)
+refcountData$reference <- factor(refcountData$reference, levels = refcountData$reference)
+plt <- ggplot(refcountData) + geom_col(aes(reference, fraction), fill = BLUE, width = 0.6) + coord_flip()
+plt <- plt + scale_y_continuous(limits=c(-0.01,1.01), breaks=seq(0,1.0,by=0.20), expand=c(0,0), position="top")
+plt <- plt + scale_x_discrete(expand = expansion(add = c(0, 0.5))) + geom_hline(yintercept=0, linewidth=0.5)
+plt <- plt + theme(
+                  panel.background = element_rect(fill = "white"),
+                  panel.grid.major.x = element_line(color = "#A8BAC4", linewidth = 0.3),
+                  axis.title = element_blank(),
+                  axis.line.y.left = element_line(color = "black"),
+                 )
+
+plt <- plt +
+  geom_text(
+    data = refcountData,
+    aes(x = reference, y = fraction, label = sprintf(fraction, fmt = '%#.5f')),
+    hjust = 0,
+    vjust = 0,
+    nudge_x = 0.0,
+    nudge_y = 0.08,
+    colour = BLUE,
+    family = "Econ Sans Cnd",
+    size = 4
+  )
+plt <- plt + labs(title = sample) + theme(plot.title = element_text(size=10))
+
+ggplotly(plt)
+
+datatable(refcountData)
+
+downloadHandler(
+  filename = function() {
+    paste(run, "_", sample, "_", "contamfracs-", Sys.Date(), ".csv", sep = "")
+  },
+  content = function(file) {
+    write.csv(refcountData, file)
+  },
+  outputArgs = list(label = "Download .csv")
+)
+
+
+```
+
+## Read Lengths
+
+```{r, echo=FALSE}
+fig <- plot_ly(width=800, height=400)
+
+fig <- fig %>% add_trace(x=readLengths$read_length, y=readLengths$counts, name="read length", mode="lines", type="scatter", line=list(color="darkred"), opacity=0.5)
+
+ay <- list(
+  tickfont = list(color = "black"),
+  overlaying = "y",
+  side = "right",
+  title = "Cumulative fraction")
+
+cumdata <- readLengths %>% mutate(csum = cumsum(counts))
+cumdata['fraction'] <- cumdata$csum / max(cumdata$csum, na.rm = TRUE)
+
+fig <- fig %>% add_trace(y=cumdata$fraction, name="cumulative", yaxis="y2", mode="lines", type="scatter", line=list(color="steelblue"), opacity=0.6)
+
+# Set figure title, x and y-axes titles
+fig <- fig %>% layout(
+  title = sample,
+  yaxis2 = ay,
+  xaxis = list(title="Read length"),
+  yaxis = list(title="Count")
+)%>%
+  layout(plot_bgcolor='white',
+          xaxis = list(
+            gridcolor = 'ffff'),
+          yaxis = list(
+            gridcolor = 'ffff')
+          )
+fig
+```
+
+## Alignment Lengths
+
+```{r, echo=FALSE}
+fig <- plot_ly(width=800, height=400)
+
+fig <- fig %>% add_trace(x=alignmentLengths$alignment_length, y=alignmentLengths$counts, name="read length", mode="lines", type="scatter", line=list(color="darkred"), opacity=0.5)
+
+# Set figure title, x and y-axes titles
+fig <- fig %>% layout(
+  title = list(text = sample, font = list(size=14)),
+  xaxis = list(title="Alignment length"),
+  yaxis = list(title="Count")
+)%>%
+  layout(plot_bgcolor='white',
+          xaxis = list(
+            gridcolor = 'ffff'),
+          yaxis = list(
+            gridcolor = 'ffff')
+          )
+fig
+```
+
+## Read Positions
+
+```{r, echo=FALSE}
+fig <- plot_ly(width=800, height=400)
+
+if (nrow(readPositions) > 1000) {
+   x <- sample(nrow(readPositions), 1000, replace=FALSE)
+   df <- readPositions[x,]
+} else {
+   df <- readPositions
+}
+
+fig <- fig %>% add_trace(x=df$position, y=df$read_length, name="read length", mode="markers", type="scatter", opacity=0.5)
+
+# Set figure title, x and y-axes titles
+fig <- fig %>% layout(
+  title = sample,
+  xaxis = list(title="Reference start position"),
+  yaxis = list(title="Read length")
+)%>%
+  layout(plot_bgcolor='white',
+          xaxis = list(
+            gridcolor = 'ffff'),
+          yaxis = list(
+            gridcolor = 'ffff')
+          )
+fig
+```
+
+## Truncation Sites
+
+```{r, echo=FALSE}
+fig <- plot_ly(width=800, height=400)
+
+fig <- fig %>% add_trace(x=truncationData$position, y=truncationData$counts, name="truncations", mode="lines", type="scatter",  line=list(color="forestgreen"), opacity=0.5)
+
+ay <- list(
+  tickfont = list(color = "black"),
+  overlaying = "y",
+  side = "right",
+  title = "Cumulative fraction")
+
+cumdata <- truncationData %>% mutate(csum = cumsum(counts))
+cumdata['fraction'] <- cumdata$csum / max(cumdata$csum, na.rm = TRUE)
+
+fig <- fig %>% add_trace(y=cumdata$fraction, name="cumulative", yaxis="y2", mode="lines", type="scatter", line=list(color="steelblue"), opacity=0.6)
+
+# Set figure title, x and y-axes titles
+fig <- fig %>% layout(
+  title = sample,
+  yaxis2 = ay,
+  xaxis = list(title="Genomic coordinate"),
+  yaxis = list(title="Count")
+)%>%
+  layout(plot_bgcolor='white',
+          xaxis = list(
+            gridcolor = 'ffff'),
+          yaxis = list(
+            gridcolor = 'ffff')
+          )
+fig
+
+```
+
+## Plasmid coverage
+
+```{r, echo=FALSE}
+
+if (!file.exists(plasmid_cov_path)) {print('No separate backbone plasmid for this run')} else {
+    fig <- plot_ly(width=800, height=400)
+    plasmidCovData <- read.delim(plasmid_cov_path, col.names=c('contig', 'position', 'depth'))
+    fig <- fig %>% add_trace(x=plasmidCovData$position, y=plasmidCovData$depth, name="Coverage", mode="lines", type="scatter",  line=list(color="darkred"), opacity=0.5)
+
+    # Set figure title, x and y-axes titles
+    fig <- fig %>% layout(
+      title = sample,
+      xaxis = list(title="Genomic coordinate"),
+      yaxis = list(title="Coverage")
+    )%>%
+      layout(plot_bgcolor='white',
+              xaxis = list(
+                gridcolor = 'ffff'),
+              yaxis = list(
+                gridcolor = 'ffff')
+              )
+fig
+}
+
+```
+
+# Interactive Plots {.tabset}
+
+## Coverage and GC
+
+```{r, echo=FALSE}
+fig <- plot_ly(width=800, height=400)
+# Add traces
+fig <- fig %>% add_trace(y=plotData$coverage, name="Coverage", mode="lines", type="scatter", line=list(color="darkred"), opacity=0.5)
+
+ay <- list(
+  tickfont = list(color = "black"),
+  overlaying = "y",
+  side = "right",
+  title = "FWD Fraction & GC Content")
+
+fig <- fig %>% add_trace(y=plotData$fwd.fraction, name="fwd frac", yaxis="y2", mode="lines", type="scatter", line=list(color="steelblue"), opacity=0.6)
+fig <- fig %>% add_trace(y=plotData$gc.content, name="gc content", yaxis="y2", mode="lines", type="scatter", line=list(color="forestgreen"), opacity=0.6)
+
+# Set figure title, x and y-axes titles
+fig <- fig %>% layout(
+  yaxis2 = ay,
+  xaxis = list(title="Reference coordinate"),
+  yaxis = list(title="Coverage")
+)%>%
+  layout(plot_bgcolor='white',
+          xaxis = list(
+            gridcolor = 'ffff'),
+          yaxis = list(
+            gridcolor = 'ffff')
+          )
+fig
+```
+
+## Base Quality and Mismatches
+
+```{r, echo=FALSE}
+
+hpolstarts = vector()
+hpolends = vector()
+hpol <- plotData$homopolymer
+for (i in 1:length(hpol)) {
+  if (hpol[[i]] == 1) {
+    if (i == 1) {
+      hpolstarts <- append(hpolstarts, c(i))
+      next
+    }
+    if (hpol[[i-1]] == 0) {
+      hpolstarts <- append(hpolstarts, c(i))
+      next
+    }
+    if (i == length(hpol)) {
+      hpolends <- append(hpolends, c(i))
+      next
+    }
+    if (hpol[[i+1]] == 0) {
+      hpolends <- append(hpolends, c(i))
+      next
+    }
+  }
+}
+
+snppos = vector()
+#snpseries = plotData$snps
+#for (i in 1:length(snpseries)) {
+#  if (snpseries[[i]] == 1) {
+#    snppos <- append(snppos, c(i))
+#  }
+#}
+
+fig <- plot_ly(width=800, height=400)
+# Add traces
+fig <- fig %>% add_trace(y=plotData$base.quality, name="base quality", mode="lines", type="scatter", line=list(color="slategrey"), opacity=0.5)
+
+ay <- list(
+  tickfont = list(color = "black"),
+  overlaying = "y",
+  side = "right",
+  title = "Mismatches per unit coverage")
+
+fig <- fig %>% add_trace(y=plotData$obs.mismatches, name="obs mismatches", yaxis="y2", mode="lines", type="scatter", line=list(color="firebrick"), opacity=0.5) %>%
+      add_trace(y=plotData$exp.mismatches, name="exp_mismatches", yaxis="y2", mode="lines", type="scatter", line=list(color='dodgerblue'), opacity=0.5) %>%
+      add_trace(x=0, y=0, name="homopolymers", mode="lines", type="scatter", line=list(color='cyan'), opacity=0.4) %>%
+      add_trace(x=0, y=0, name="snps", mode="lines", type="scatter", line=list(color='forestgreen'), opacity=0.5)
+
+# Set figure title, x and y-axes titles
+fig <- fig %>% layout(
+  yaxis2 = ay,
+  xaxis = list(title="Reference coordinate"),
+  yaxis = list(title="Phred mean quality"),
+  yaxis = list(range=c(0,40))
+) %>%
+  layout(plot_bgcolor='white',
+          xaxis = list( 
+            gridcolor = 'ffff'),
+          yaxis = list( 
+            gridcolor = 'ffff')
+          )
+
+shapeslist = list()
+if (length(hpolstarts) > 0) {
+  for (i in 1:length(hpolstarts)) {
+    shapeslist <- append(shapeslist, list(list(type='rect', fillcolor='cyan', line=list(color='cyan'), opacity=0.4, xref="x", yref="y", y0=-2, y1=40, x0=hpolstarts[[i]], x1=hpolends[[i]])))
+  }
+}
+
+vline <- function(x = 0, color = "black") {
+  list(
+    type = "line",
+    x0 = x,
+    x1 = x,
+    yref = "paper",
+    y0 = 0,
+    y1 = 1,
+    line = list(color = color),
+    opacity = 0.5
+  )
+}
+
+if (length(snppos) > 0) {
+    for (i in 1:length(snppos)) {
+        shapeslist <- append(shapeslist, list(vline(snppos[[i]], 'forestgreen')))
+    }
+}
+
+fig <- fig %>% layout(shapes=shapeslist, legend=list(x=100, y=1.0))
+
+fig
+```
+
+## Insert size and deletions
+
+```{r, echo=FALSE}
+fig <- plot_ly(width=800, height=400)
+# Add traces
+fig <- fig %>% add_trace(y=plotData$deletions, name="deletions", mode="lines", type="scatter", line=list(color="forestgreen"), opacity=0.8)
+
+# Set figure title, x and y-axes titles
+fig <- fig %>% layout(
+  xaxis = list(title="Reference coordinate"),
+  yaxis = list(title="Number of deleted bases")
+)%>%
+  layout(plot_bgcolor='white',
+          xaxis = list( 
+            gridcolor = 'ffff'),
+          yaxis = list( 
+            gridcolor = 'ffff')
+          )
+fig
+```
+
+## Mapping and clipping
+
+```{r, echo=FALSE}
+fig <- plot_ly(width=800, height=400)
+# Add traces
+fig <- fig %>% add_trace(y=plotData$mapq, name="mapq", mode="lines", type="scatter", line=list(color="orchid"), opacity=0.5)
+
+ay <- list(
+  tickfont = list(color = "black"),
+  overlaying = "y",
+  side = "right",
+  title = "Soft-clipping per unit coverage")
+
+fig <- fig %>% add_trace(y=plotData$clipping, name="soft-clipping", yaxis="y2", mode="lines", type="scatter", line=list(color="forestgreen"), opacity=0.5)
+
+# Set figure title, x and y-axes titles
+fig <- fig %>% layout(
+  yaxis2 = ay,
+  xaxis = list(title="Reference coordinate"),
+  yaxis = list(title="Mean mapping quality")
+)%>%
+  layout(plot_bgcolor='white',
+          xaxis = list(
+            gridcolor = 'ffff'),
+          yaxis = list(
+            gridcolor = 'ffff')
+          )
+fig
+```
+
+&nbsp;
+&nbsp;
+&nbsp;
+
+# Additional downloads
+
+### Table of metrics used in figures above 
+
+```{r, echo=FALSE}
+
+## create downloadButton in Rmd document
+downloadHandler(
+  filename = function() { 
+    paste(run, "_", sample, "_", "plotdata-", Sys.Date(), ".csv", sep = "")
+  }, 
+  content = function(file) {
+    write.csv(plotData, file)
+  },
+  outputArgs = list(label = "Download positional metrics CSV")
+)
+```
+
+<br>
+
+### BAM of reads aligned to vector reference
+
+```{r, echo=FALSE}
+
+downloadHandler(
+  filename = paste(run, "_", sample, "_", basename(bampath), sep = ""),
+  content = function(file) {
+    file.copy(bampath, file)
+  },
+  outputArgs = list(label="Download BAM")
+)
+
+download_file(
+  path = baipath,
+  output = paste(run, "_", sample, "_", basename(bampath), sep = ""),
+  button_label = "Download BAM index",
+  button_type = "default",
+  has_icon = TRUE,
+  icon = "fa fa-save",
+  self_contained = FALSE
+)
+```
+
+<br>
+
+### Human genome contamination BAM
+
+```{r, echo=FALSE}
+if (file.exists(humanbampath)) {
+downloadHandler(
+  filename = paste(run, "_", sample, "_", basename(humanbampath), sep = ""),
+  content = function(file) {
+    file.copy(humanbampath, file)
+  },
+  outputArgs = list(label="Download BAM")
+)
+}
+
+if (file.exists(humanbampath)) {
+download_file(
+  path = humanbaipath,
+  output = paste(run, "_", sample, "_", basename(humanbampath), sep = ""),
+  button_label = "Download BAM index",
+  button_type = "default",
+  has_icon = TRUE,
+  icon = "fa fa-save",
+  self_contained = FALSE
+)
+}
+```
+
+<br>
+
+### Clipped reads BAM
+
+```{r, echo=FALSE}
+if (file.exists(scbampath)) {
+downloadHandler(
+  filename = paste(run, "_", sample, "_", basename(scbampath), sep = ""),
+  content = function(file) {
+    file.copy(scbampath, file)
+  },
+  outputArgs = list(label="Download BAM")
+)
+}
+
+if (file.exists(scbampath)) {
+download_file(
+  path = scbaipath,
+  output = paste(run, "_", sample, "_", basename(scbampath), sep = ""),
+  button_label = "Download BAM index",
+  button_type = "default",
+  has_icon = TRUE,
+  icon = "fa fa-save",
+  self_contained = FALSE
+)
+}
+```
+
+### Transposon BAM
+
+```{r, echo=FALSE}
+if (file.exists(tnbampath)) {
+downloadHandler(
+  filename = paste(run, "_", sample, "_", basename(tnbampath), sep = ""),
+  content = function(file) {
+    file.copy(tnbampath, file)
+  },
+  outputArgs = list(label="Download BAM")
+)
+}
+
+if (file.exists(tnbampath)) {
+download_file(
+  path = tnbaipath,
+  output = paste(run, "_", sample, "_", basename(tnbampath), sep = ""),
+  button_label = "Download BAM index",
+  button_type = "default",
+  has_icon = TRUE,
+  icon = "fa fa-save",
+  self_contained = FALSE
+)
+}
+```
+
+<br>
+
+### Primary reference FASTA
+
+```{r, echo=FALSE}
+download_file(
+  path = fastapath, 
+  button_label = "Download reference FASTA",
+  button_type = "default",
+  has_icon = TRUE,
+  icon = "fa fa-save",
+  self_contained = FALSE
+)
+
+```
+
+<br>
+
+### Consensus FASTA
+
+```{r, echo=FALSE}
+download_file(
+  path = consensusFasta,
+  output = paste(run, "_", sample, "_", basename(consensusFasta), sep = ""),
+  button_label = "Download consensus FASTA",
+  button_type = "default",
+  has_icon = TRUE,
+  icon = "fa fa-save",
+  self_contained = FALSE
+)
+
+```
+
+<br>
+
+### Consensus pairwise alignment
+
+```{r, echo=FALSE}
+
+## create downloadButton in Rmd document
+downloadHandler(
+  filename = function() {
+    paste(run, "_", sample, "_", "pairwise-", Sys.Date(), ".txt", sep = "")
+  },
+  content = function(file) {
+    file.copy(pairwiseAlignment, file)
+  },
+  outputArgs = list(label = "Download pairwise alignment")
+)
+```

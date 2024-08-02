@@ -1,0 +1,56 @@
+---
+title: "Histogram of Read alignment length"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_collapsed: true
+    toc_depth: 3
+    number_sections: yes
+    code_folding: hide
+params:
+    files: x
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE,
+                      warning = FALSE)
+```
+
+```{r include=FALSE}
+library(rmarkdown)
+library(ggplot2)
+```
+
+<!-- # ```{r}
+# all_files <- unlist(strsplit(params$files, " "))
+
+# for (i in all_files[grepl(pattern = ".read_len.txt", all_files)]){
+#     tmp = unlist(strsplit(i, "/"))
+#     toPlot = gsub(".read_len.txt", "", tmp[length(tmp)])
+#     cat(toPlot, "\n")
+#     df = read.table(i)
+#     colnames(df) <- "length"
+#     p <- ggplot(df, aes(x=length)) + geom_histogram(binwidth = 10) +
+#      labs(title="CCS length distribution", x="Length", y = "Count") +
+#      theme(plot.title = element_text(hjust = 0.5))
+#     print(p)
+# }
+# ``` -->
+
+## Read alignment length
+```{r}
+all_files <- unlist(strsplit(params$files, " "))
+for (i in all_files[grepl(pattern = ".align_len.txt", all_files)]){
+    tmp <- unlist(strsplit(i, "/"))
+    toPlot <- gsub(".align_len.txt", "", tmp[length(tmp)])
+    cat(toPlot, "\n")
+    df <- read.table(i)
+    colnames(df) <- "length"
+    p <- ggplot(df, aes(x = length)) + geom_histogram(binwidth = 10) +
+        labs(title = "Read length distribution", x = "Length", y = "Count") +
+        theme(plot.title = element_text(hjust = 0.5))
+    print(p)
+
+}
+```

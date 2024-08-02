@@ -1,0 +1,80 @@
+---
+pacbio-plasmid:
+  label: "PacBio Long Read Plasmid Characterization"
+  version: "v1.2.3"
+  description: "Full report with sequence ID and contamination"
+  workspace_id: "115437722032750"
+  compute_env_id: "1SepHXjkNIFllfRsNfVTsH"
+  workspace_secrets:
+    - "RSTUDIO_CONNECT_API_KEY"
+    - "RSTUDIO_CONNECT_API_USER"
+  pipeline_admins:
+    - "nathan.johnson@sparktx.com"
+  output_bucket: "sparkds-nextflow-outputs-production"
+  default_parameters:
+    consensus_thresh:
+      - 0.95
+      - 0.99
+    min_variant_freq: 0.01
+    variant_maxdepth: 1000000
+    min_consensus_baseq: 30
+    ndownsample: 50000
+  default_inputs:
+    lot: ""
+    run: ""
+    date: ""
+    email: ""
+    group: ""
+    reads: ""
+    reference: ""
+    program: ""
+    project: ""
+    species: ""
+    platform: ""
+    requester: ""
+    machine_id: ""
+    consensus_thresh: ""
+    min_variant_freq: ""
+    variant_maxdepth: ""
+    min_variant_baseq: ""
+    ndownsample: ""
+
+pacbio-vector:
+  label: "PacBio Long Read Vector Characterization"
+  version: "v1.2.3"
+  description: "Full report with sequence ID and contamination"
+  workspace_id: "115437722032750"
+  compute_env_id: "1SepHXjkNIFllfRsNfVTsH"
+  workspace_secrets:
+    - "RSTUDIO_CONNECT_API_KEY"
+    - "RSTUDIO_CONNECT_API_USER"
+  pipeline_admins:
+    - "nathan.johnson@sparktx.com"
+  output_bucket: "sparkds-nextflow-outputs-production"
+  default_parameters:
+    consensus_thresh:
+      - 0.95
+      - 0.99
+    min_variant_freq: 0.01
+    variant_maxdepth: 1000000
+    min_consensus_baseq: 30
+    ndownsample: 50000
+  default_inputs:
+    lot: ""
+    run: ""
+    date: ""
+    email: ""
+    group: ""
+    reads: ""
+    reference: ""
+    program: ""
+    project: ""
+    species: ""
+    platform: ""
+    requester: ""
+    machine_id: ""
+    consensus_thresh: ""
+    min_variant_freq: ""
+    variant_maxdepth: ""
+    min_variant_baseq: ""
+    ndownsample: ""
